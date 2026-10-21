@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TRIGUN-GOTHAM // Maritime Domain Awareness & C2 Execution</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap">
+
+<style>
+:root {
+  --bg-core: #05080B; --bg-panel: #0A0F14; --bg-panel-alt: #0F161E; --bg-surface: #151F2A;
+  --border: #1B2936;
+  --text-main: #D9E6F2; --text-muted: #6B8296; --text-dim: #3E5162;
+  --c2-cyan: #00E5FF; --c2-cyan-glow: rgba(0, 229, 255, 0.15);
+  --c2-amber: #FFB300; --c2-red: #FF334B; --c2-green: #00E676; --c2-purple: #B388FF;
+  --mono: 'JetBrains Mono', monospace; --sans: 'Inter', -apple-system, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-core); color: var(--text-main); font-family: var(--sans); font-size: 12px; line-height: 1.4; padding: 10px; overflow-x: hidden; }
+.c2-app { max-width: 1560px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; position: relative; }
+
+/* Header & Control Bar */
+.c2-header { display: flex; justify-content: space-between; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); padding: 8px 14px; border-radius: 4px; }
+.brand-group { display: flex; align-items: center; gap: 10px; }
+.brand-badge { font-family: var(--mono); font-size: 10px; background: var(--c2-cyan-glow); color: var(--c2-cyan); border: 1px solid var(--c2-cyan); padding: 2px 6px; border-radius: 2px; }
+h1 { font-size: 14px; font-weight: 700; text-transform: uppercase; }
+.system-status { font-family: var(--mono); font-size: 11px; color: var(--text-muted); display: flex; gap: 14px; }
+.system-status span b { color: var(--c2-green); }
+
+.control-bar { display: grid; grid-template-columns: auto auto auto 1fr auto auto auto; gap: 10px; align-items: center; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; }
+button, select { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text-main); background: var(--bg-surface); border: 1px solid var(--border); border-radius: 3px; padding: 5px 9px; cursor: pointer; transition: all 0.15s ease; }
+button:hover { border-color: var(--c2-cyan); }
+button.btn-primary { background: var(--c2-cyan); color: #000; border-color: var(--c2-cyan); }
+button.btn-danger { background: var(--bg-surface); color: var(--c2-red); border-color: var(--border); }
+button.btn-danger:hover { background: var(--c2-red); color: #000; }
+.clock-display { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--c2-cyan); min-width: 85px; text-shadow: 0 0 10px var(--c2-cyan-glow); }
+.sliderbox { position: relative; padding-bottom: 16px; }
+input[type=range] { width: 100%; accent-color: var(--c2-cyan); height: 4px; background: var(--border); cursor: pointer; }
+.ticks { position: absolute; left: 0; right: 0; top: 11px; height: 7px; }
+.tick { position: absolute; transform: translateX(-50%); width: 2px; height: 7px; background: var(--c); cursor: pointer; }
+.axis { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--text-dim); }
+
+/* Telemetry */
+.telemetry-strip { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; }
+.telemetry-cell { padding: 6px 10px; border-right: 1px solid var(--border); }
+.telemetry-cell:last-child { border-right: none; }
+.telemetry-cell .lbl { font-family: var(--mono); font-size: 9px; color: var(--text-muted); text-transform: uppercase; }
+.telemetry-cell .val { font-family: var(--mono); font-size: 13.5px; font-weight: 700; color: var(--text-main); margin-top: 1px; }
+.threat-meter { display: flex; align-items: center; gap: 8px; }
+.threat-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.threat-fill { height: 100%; width: 10%; background: var(--c2-green); transition: width 0.3s ease, background 0.3s ease; }
+
+/* Grid & Panels */
+.c2-grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 8px; }
+.panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 9px 11px; }
+.panel h2 { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--c2-cyan); display: flex; justify-content: space-between; margin-bottom: 7px; }
+
+/* Map */
+#leafletMap { width: 100%; height: 480px; background: #04080B; border: 1px solid var(--border); border-radius: 3px; }
+.leaflet-container { background: #04080B !important; }
+.leaflet-control-zoom a { background: var(--bg-surface) !important; color: var(--c2-cyan) !important; border-color: var(--border) !important; }
+.tactical-marker { display: flex; align-items: center; justify-content: center; }
+.target-pulsing { width: 14px; height: 14px; border-radius: 50%; background: var(--c2-cyan); box-shadow: 0 0 10px var(--c2-cyan); border: 2px solid #000; }
+.target-pulsing.dark { background: var(--c2-red); box-shadow: 0 0 14px var(--c2-red); animation: pulse-ring 1.3s infinite; }
+@keyframes pulse-ring { 0% { transform: scale(0.95); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.65; } 100% { transform: scale(0.95); opacity: 1; } }
+.map-hud-bar { display: flex; justify-content: space-between; background: #030608; border: 1px solid var(--border); border-top: none; padding: 4px 10px; font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); }
+.map-hud-bar span b { color: var(--c2-cyan); }
+
+/* Side Stack & Alerts */
+.side-stack { display: flex; flex-direction: column; gap: 8px; }
+.inset-container { background: #030608; border: 1px solid var(--border); display: flex; justify-content: center; }
+.alert-feed { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.c2-alert { background: var(--bg-panel-alt); border-left: 3px solid var(--border); padding: 6px 8px; cursor: pointer; border-radius: 2px; display: flex; flex-direction: column; gap: 2px; }
+.c2-alert.sev-advisory { border-left-color: var(--c2-cyan); }
+.c2-alert.sev-warning { border-left-color: var(--c2-amber); }
+.c2-alert.sev-critical { border-left-color: var(--c2-red); }
+.c2-alert.future { opacity: 0.35; }
+.c2-alert:hover { background: #141E28; }
+.alert-meta { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); }
+.alert-title { font-size: 11px; font-weight: 600; color: var(--text-main); }
+.alert-desc { font-size: 10.5px; color: var(--text-muted); line-height: 1.3; }
+
+/* COA Matrix */
+.coa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+.coa-card { background: var(--bg-panel-alt); border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; }
+.coa-card.active { border-color: var(--c2-green); background: rgba(0, 230, 118, 0.05); }
+.coa-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.coa-title { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text-main); }
+.coa-body { font-size: 10.5px; color: var(--text-muted); line-height: 1.35; margin-bottom: 8px; }
+.coa-metrics { font-family: var(--mono); font-size: 9.5px; color: var(--text-dim); margin-bottom: 8px; display: flex; flex-direction: column; gap: 2px; }
+.coa-btn { width: 100%; font-family: var(--mono); font-size: 10px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-main); padding: 4px 0; }
+.coa-btn:hover:not(:disabled) { border-color: var(--c2-cyan); color: var(--c2-cyan); }
+.coa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pos-gauge { position: absolute; top: -15px; right: -15px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--c2-green); font-family: var(--mono); font-size: 10px; padding: 20px 20px 5px 5px; border-radius: 50%; font-weight: bold; transition: color 0.3s; }
+
+/* Tables & Console */
+.two-col-planner { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.tactical-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.tactical-table th { font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; text-align: left; padding: 5px; border-bottom: 1px solid var(--border); }
+.tactical-table td { padding: 5px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.tactical-table tr.clickable { cursor: pointer; }
+.tactical-table tr.clickable:hover td { background: var(--bg-surface); }
+.tactical-table tr.selected td { background: var(--c2-cyan-glow); color: var(--c2-cyan); }
+.num { font-family: var(--mono); text-align: right; }
+.badge { font-family: var(--mono); font-size: 8.5px; padding: 1px 4px; border-radius: 2px; }
+
+.c2-console { background: #030507; border: 1px solid var(--border); border-radius: 3px; padding: 6px 10px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); height: 62px; overflow-y: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+.console-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console-line span.ts { color: var(--c2-cyan); }
+.console-line span.warn { color: var(--c2-amber); }
+.console-line span.crit { color: var(--c2-red); }
+
+/* Dossier Drawer */
+.dossier-drawer { position: fixed; top: 0; right: -420px; width: 400px; height: 100vh; background: var(--bg-panel); border-left: 2px solid var(--c2-cyan); box-shadow: -10px 0 30px rgba(0,0,0,0.8); z-index: 9999; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; padding: 16px; gap: 12px; overflow-y: auto; }
+.dossier-drawer.open { right: 0; }
+.dossier-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.dossier-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+.dossier-close:hover { color: var(--c2-cyan); }
+.dossier-card { background: var(--bg-panel-alt); border: 1px solid var(--border); padding: 8px 10px; border-radius: 3px; font-size: 11px; }
+.dossier-card h4 { font-family: var(--mono); font-size: 9.5px; color: var(--c2-cyan); margin-bottom: 6px; letter-spacing: 0.08em; }
+.dossier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-family: var(--mono); font-size: 10px; }
+.dossier-grid div span { color: var(--text-muted); display: block; font-size: 8.5px; }
+
+/* Execution Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center; }
+.modal-content { background: var(--bg-panel); border: 1px solid var(--c2-cyan); box-shadow: 0 0 30px rgba(0, 229, 255, 0.2); width: 600px; padding: 20px; font-family: var(--mono); }
+.modal-header { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 10px; color: var(--c2-cyan); font-weight: bold; }
+.modal-body { color: var(--text-main); font-size: 12px; line-height: 1.5; min-height: 120px; }
+.typewriter { overflow: hidden; white-space: pre-wrap; border-right: .15em solid var(--c2-cyan); animation: blink-caret .75s step-end infinite; }
+@keyframes blink-caret { from, to { border-color: transparent } 50% { border-color: var(--c2-cyan); } }
+.modal-close { margin-top: 15px; width: 100%; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-main); padding: 8px; cursor: pointer; }
+.modal-close:hover { background: var(--c2-cyan); color: #000; }
+</style>
+</head>
+<body>
+
+<div class="c2-app">
+  <header class="c2-header">
+    <div class="brand-group">
+      <span class="brand-badge">PALANTIR GOTHAM // C2</span>
+      <h1>HQ-ENC Information Management and Analysis Centre (IMAC)</h1>
+    </div>
+    <div class="system-status">
+      <span>THEATRE: <b>GLOBAL GLOBAL MARITIME DOMAIN</b></span>
+      <span>DATALINK: <b>GSAT-7A RUKMINI</b></span>
+      <span>TRACK: <b>TARGET [EVER GIVEN]</b></span>
+    </div>
+  </header>
+
+  <section class="telemetry-strip" id="telemetryStrip"></section>
+
+  <section class="control-bar">
+    <button id="play" class="btn-primary" type="button">EXECUTE</button>
+    <label style="font-family:var(--mono);font-size:10px;color:var(--text-muted);">WARP:
+      <select id="speed"><option value="1">1X</option><option value="2" selected>2X</option><option value="4">4X</option><option value="8">8X</option></select>
+    </label>
+    <div class="clock-display" id="clock">T-06:00</div>
+    <div class="sliderbox">
+      <input id="t" type="range" min="0" max="144" step="1" value="26">
+      <div class="ticks" id="ticks"></div>
+      <div class="axis"><span>T-06:00 (TRANSIT)</span><span>T0: SATELLITE LOCK / AIS LIVE</span><span>T+30:00 (COASTAL INGRESS)</span></div>
+    </div>
+    <button id="resetBtn" type="button">T0 JUMP</button>
+    <button id="abortBtn" class="btn-danger" type="button" style="display:none;">ABORT DISPATCH</button>
+    <button id="dossierToggle" class="btn-dossier" type="button" style="margin-left:auto;">&#x1F4CB; DOSSIER</button>
+  </section>
+
+  <div class="c2-grid">
+    <section class="panel">
+      <h2><span>GEOSPATIAL SITUATIONAL DISPLAY</span> <span style="color:var(--text-muted);font-weight:400;">GLOBAL SATELLITE FEED // AIS STREAM</span></h2>
+      <div id="leafletMap"></div>
+      <div class="map-hud-bar">
+        <span>CURSOR: <b id="hudCoords">--°N, --°E</b></span>
+        <span>RANGE TO TARGET: <b id="hudRange">-- NM</b></span>
+        <span>ACTIVE SENSOR: <b>EL/M-2022 + SAT-AIS + LIVE WEB SOCKET</b></span>
+      </div>
+    </section>
+
+    <div class="side-stack">
+      <section class="panel">
+        <h2>LOCAL RADAR RETURN // 12 NM TACTICAL INSET</h2>
+        <div class="inset-container"><svg id="inset" viewBox="0 0 220 220" role="img"></svg></div>
+      </section>
+      <section class="panel" style="flex:1;">
+        <h2>TACTICAL INCIDENT & ANOMALY LOG</h2>
+        <div class="alert-feed" id="alerts"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2>PALANTIR COA DECISION MATRIX // TACTICAL INTERVENTION OPTIONS</h2>
+    <div class="coa-grid">
+      <div class="coa-card" id="coa1">
+        <div class="pos-gauge" id="pos1">--%</div>
+        <div>
+          <div class="coa-header"><span class="coa-title">COA 1: MARCOS AIR DROP</span><span class="badge" style="background:rgba(0,229,255,0.15);color:var(--c2-cyan);">AIRBORNE</span></div>
+          <div class="coa-body">C-130J parachute drop of Combat Rubber Raiding Craft (CRRC) with MARCOS. Fast containment, high readiness profile.</div>
+          <div class="coa-metrics">
+            <span>RESPONSE ETA: <b id="eta1" style="color:var(--c2-cyan)">--</b></span>
+            <span>FEASIBILITY DYNAMIC: <b id="feas1">OPTIMAL WINDOW</b></span>
+          </div>
+        </div>
+        <button class="coa-btn" id="btnCOA1" onclick="executeCOA(1)">AUTHORIZE EXECUTION</button>
+      </div>
+
+      <div class="coa-card" id="coa2">
+        <div class="pos-gauge" id="pos2">--%</div>
+        <div>
+          <div class="coa-header"><span class="coa-title">COA 2: SURFACE KINETIC INTERCEPT</span><span class="badge" style="background:rgba(255,179,0,0.15);color:var(--c2-amber);">NAVAL</span></div>
+          <div class="coa-body">Direct sprint by INS Kolkata. RHIB deployment with deck gun cover. Highest deterrence, heavy fuel penalty on sprint.</div>
+          <div class="coa-metrics">
+            <span>RESPONSE ETA: <b id="eta2" style="color:var(--c2-amber)">--</b></span>
+            <span>FEASIBILITY DYNAMIC: <b id="feas2">LEGAL JURISDICTION OK</b></span>
+          </div>
+        </div>
+        <button class="coa-btn" id="btnCOA2" onclick="executeCOA(2)">AUTHORIZE EXECUTION</button>
+      </div>
+
+      <div class="coa-card" id="coa3">
+        <div class="pos-gauge" id="pos3">--%</div>
+        <div>
+          <div class="coa-header"><span class="coa-title">COA 3: JURISDICTIONAL BLOCKADE</span><span class="badge" style="background:rgba(255,51,75,0.15);color:var(--c2-red);">BLOCKADE</span></div>
+          <div class="coa-body">Pre-position assets along territorial sea baselines to establish a sovereign maritime blockade.</div>
+          <div class="coa-metrics">
+            <span>RESPONSE ETA: <b id="eta3" style="color:var(--c2-red)">PRE-EMPTIVE</b></span>
+            <span>FEASIBILITY DYNAMIC: <b>SPEED VS BORDER CROSSING</b></span>
+          </div>
+        </div>
+        <button class="coa-btn" id="btnCOA3" onclick="executeCOA(3)">AUTHORIZE EXECUTION</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>TASK FORCE FUEL & ENDURANCE PLANNER</h2>
+    <div class="two-col-planner">
+      <table class="tactical-table" id="assetTable"></table>
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--text-muted);margin-top:6px;line-height:1.3;">
+        * Note: SPRINT profiles burn fuel exponentially (∝V³). Ships automatically downgrade to CRUISE profile if sprint endurance is insufficient for the intercept. Dispatched units actively track the target.
+      </div>
+    </div>
+  </section>
+
+  <div class="c2-console" id="c2Console"></div>
+</div>
+
+<!-- Slide-out Dossier Drawer -->
+<div class="dossier-drawer" id="dossierDrawer">
+  <div class="dossier-header"><h3 style="font-family:var(--mono);font-size:12px;color:var(--c2-cyan);">TARGET ENTITY DOSSIER</h3><button class="dossier-close" id="dossierClose">&times;</button></div>
+  <div class="dossier-card"><h4>VESSEL PROFILE & REGISTRY</h4>
+    <div class="dossier-grid"><div><span>NAME</span><b>EVER GIVEN</b></div><div><span>FLAG STATE</span><b>PANAMA [PAN]</b></div><div><span>IMO / MMSI</span><b>9811000 / 636026627</b></div><div><span>TYPE</span><b>CONTAINER SHIP</b></div><div><span>DWT / TONNAGE</span><b>199,629 DWT</b></div><div><span>OWNER</span><b>SHOEI KISEN KAISHA</b></div></div>
+  </div>
+  <div class="dossier-card"><h4>CREW & CARGO MANIFEST</h4>
+    <div class="dossier-grid"><div><span>TOTAL COMPLEMENT</span><b>25 SOULS</b></div><div><span>NATIONALITIES</span><b>INDIAN (25)</b></div><div><span>SECURITY STATUS</span><b>SECURE / ACTIVE SAT-AIS</b></div><div><span>CARGO</span><b>CONTAINERIZED FREIGHT</b></div></div>
+  </div>
+  <div class="dossier-card"><h4>INTELLIGENCE LINK GRAPH</h4>
+    <p style="font-size:10.5px;color:var(--text-muted);line-height:1.4;margin-bottom:6px;">Correlated with global container liner routes. Real-time telemetry pulled via live WebSocket connection to AISStream infrastructure.</p>
+    <div style="font-family:var(--mono);font-size:9.5px;color:var(--c2-cyan);">TARGET STATUS: LIVE TRACKING ACTIVE</div>
+  </div>
+</div>
+
+<!-- Execution Modal -->
+<div class="modal-overlay" id="execModal">
+  <div class="modal-content">
+    <div class="modal-header"><span>AAR // KINETIC EXECUTION REPORT</span><span id="modalTime">T+00:00</span></div>
+    <div class="modal-body typewriter" id="modalText"></div>
+    <button class="modal-close" onclick="closeModal()">ACKNOWLEDGE & CLOSE</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const M = (function(){
+  const T0 = -6, DT = 0.25, N = 144;
+  const KF_TARGET = [[-6, 25.0, 55.0], [0, 25.2, 55.2], [12, 25.5, 55.5]];
+  const SKIFFS = [];
+  const SIGINT = [];
+  const ASSETS = [
+    { id: 'INS_KOLKATA', name: 'INS Kolkata', role: 'Destroyer', type: 'ship', maxKn: 30, cruiseKn: 20, maxFuel: 100, pos: [20.0, 72.0], radarNm: 40 },
+    { id: 'ICGS_SAMARTH', name: 'ICGS Samarth', role: 'OPV', type: 'ship', maxKn: 23, cruiseKn: 16, maxFuel: 100, pos: [18.0, 70.0], radarNm: 22 },
+    { id: 'IN_P8I', name: 'IN-P8I Neptune', role: 'Air Recon', type: 'air', maxKn: 420, cruiseKn: 350, maxFuel: 100, pos: [15.0, 73.0], radarNm: 120 }
+  ];
+
+  const R2D = Math.PI / 180;
+  function lerp(kf, t){
+    if (t <= kf[0][0]) return [kf[0][1], kf[0][2]];
+    const L = kf[kf.length - 1];
+    if (t >= L[0]) return [L[1], L[2]];
+    for (let i = 1; i < kf.length; i++){
+      if (t <= kf[i][0]){
+        const a = kf[i-1], b = kf[i], f = (t - a[0]) / (b[0] - a[0]);
+        return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+      }
+    }
+  }
+  function nm(a, b){
+    const dLa = (b[0] - a[0]) * R2D, dLo = (b[1] - a[1]) * R2D;
+    const h = Math.sin(dLa / 2)**2 + Math.cos(a[0] * R2D) * Math.cos(b[0] * R2D) * Math.sin(dLo / 2)**2;
+    return 2 * 3440.065 * Math.asin(Math.sqrt(h));
+  }
+  function brg(a, b){
+    const y = Math.sin((b[1] - a[1]) * R2D) * Math.cos(b[0] * R2D), x = Math.cos(a[0] * R2D) * Math.sin(b[0] * R2D) - Math.sin(a[0] * R2D) * Math.cos(b[0] * R2D) * Math.cos((b[1] - a[1]) * R2D);
+    return (Math.atan2(y, x) / R2D + 360) % 360;
+  }
+  function fmt(t){
+    const s = t < 0 ? '-' : '+', a = Math.abs(t);
+    let h = Math.floor(a + 1e-9), m = Math.round((a - h) * 60);
+    if (m === 60){ h++; m = 0; }
+    return 'T' + s + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  const times = []; for (let i = 0; i <= N; i++) times.push(T0 + i * DT);
+  const target = t => lerp(KF_TARGET, t);
+  function series(fn){
+    const pos = times.map(fn), spd = pos.map((p, i) => i === 0 ? nm(p, pos[1]) / DT : nm(pos[i-1], p) / DT);
+    const hdg = pos.map((p, i) => i === 0 ? brg(p, pos[1]) : brg(pos[i-1], p));
+    return { pos, spd, hdg };
+  }
+  const tg = series(target), ais = times.map(t => true);
+
+  const alerts = [
+    { key: 'link', i: 0, t: 0, sev: 'advisory', title: 'LIVE SAT-AIS LINK ESTABLISHED', detail: 'Real-time telemetry stream connected to target MMSI 636026627.' }
+  ];
+
+  function intercept(assetStartPos, asset, t0){
+    let profile = 'SPRINT', speed = asset.maxKn;
+    const burnRateSprint = asset.type === 'ship' ? 5.5 : 8, burnRateCruise = asset.type === 'ship' ? 1.5 : 4;
+    let hit = null, tauUsed = 0, fuelBurned = 0;
+    
+    for (let tau = 0; tau <= 72; tau += 0.05){
+      const tp = target(t0 + tau);
+      if (nm(assetStartPos, tp) <= speed * tau) { hit = tp; tauUsed = tau; break; }
+    }
+    if(hit) fuelBurned = tauUsed * burnRateSprint;
+    
+    if (hit && fuelBurned > asset.maxFuel * 0.85 && asset.type === 'ship') {
+      profile = 'CRUISE'; speed = asset.cruiseKn; hit = null;
+      for (let tau = 0; tau <= 72; tau += 0.05){
+        const tp = target(t0 + tau);
+        if (nm(assetStartPos, tp) <= speed * tau) { hit = tp; tauUsed = tau; fuelBurned = tauUsed * burnRateCruise; break; }
+      }
+    }
+    if(!hit) return null;
+    return { tau: tauUsed, point: hit, profile, fuelBurned, rem: Math.max(0, 100 - fuelBurned) };
+  }
+  
+  return { T0, DT, N, times, tg, ais, SIGINT, ASSETS, alerts, target, intercept, fmt, nm, brg, lerp };
+})();
+</script>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const SEV_COLOR = { advisory: 'var(--c2-cyan)', warning: 'var(--c2-amber)', critical: 'var(--c2-red)' };
+  let idx = 26, timer = null, selected = 'INS_KOLKATA';
+  let activeDispatch = { active: false, assetId: null, startTime: null, hitPoint: null, tau: null, startPos: null, profile: null, coaNum: null };
+
+  const map = L.map('leafletMap', { center: [25.0, 55.0], zoom: 5, minZoom: 3, maxZoom: 16, zoomControl: true });
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 }).addTo(map);
+
+  const trackLayer = L.layerGroup().addTo(map), assetLayer = L.layerGroup().addTo(map), vectorLayer = L.layerGroup().addTo(map), radarLayer = L.layerGroup().addTo(map);
+  let targetMarker = null;
+
+  function computeThreatScore(i){ return 12; }
+
+  function drawMap(i){
+    const curPos = M.tg.pos[i];
+    const tgtIcon = L.divIcon({ html: `<div class="target-pulsing"></div>`, className: 'tactical-marker', iconSize: [14,14], iconAnchor: [7,7] });
+    
+    if (!targetMarker) {
+      targetMarker = L.marker(curPos, { icon: tgtIcon }).addTo(map);
+      targetMarker.bindTooltip('<b>EVER GIVEN</b>', {permanent:true, direction:'right', offset:[10,0]});
+    } else { 
+      targetMarker.setLatLng(curPos); 
+    }
+
+    assetLayer.clearLayers(); vectorLayer.clearLayers(); radarLayer.clearLayers();
+    M.ASSETS.forEach(a => {
+      const isShip = a.type === 'ship';
+      let renderPos = a.pos;
+      const svg = isShip ? `<svg width="24" height="24"><polygon points="12,2 20,18 4,18" fill="#00E5FF" stroke="#000"/></svg>` : `<svg width="24" height="24"><polygon points="12,2 22,20 12,15 2,20" fill="#FFB300" stroke="#000"/></svg>`;
+      const m = L.marker(renderPos, { icon: L.divIcon({ html: svg, className: 'tactical-marker', iconSize: [24,24], iconAnchor: [12,12] }) }).addTo(assetLayer);
+      m.bindTooltip(`<b>${a.name}</b><br>${a.role}`, { direction: 'top' });
+      m.on('click', () => { selected = a.id; draw(idx); });
+      L.circle(renderPos, { radius: a.radarNm * 1852, color: isShip ? '#00E5FF' : '#FFB300', weight: 0.8, fillOpacity: 0.04, dashArray: '3, 6' }).addTo(radarLayer);
+    });
+  }
+
+  function drawInset(i){
+    const C = 110, S = 7.5;
+    let g = '<rect width="220" height="220" fill="#030608"/>';
+    [3, 6, 10].forEach(r => { g += `<circle cx="${C}" cy="${C}" r="${r * S}" fill="none" stroke="var(--border)" stroke-width="0.8"/><text x="${C + 4}" y="${C - r * S + 10}" font-family="var(--mono)" font-size="8" fill="var(--text-dim)">${r} NM</text>`; });
+    g += `<line x1="${C}" y1="10" x2="${C}" y2="210" stroke="var(--border)" stroke-width="0.5"/><line x1="10" y1="${C}" x2="210" y2="${C}" stroke="var(--border)" stroke-width="0.5"/><text x="${C + 4}" y="18" font-family="var(--mono)" font-size="9" fill="var(--c2-cyan)">GRID N</text>`;
+    g += `<circle cx="${C}" cy="${C}" r="4" fill="var(--c2-cyan)"/>`;
+    $('inset').innerHTML = g;
+  }
+
+  function drawStrip(i){
+    const t = M.times[i];
+    $('telemetryStrip').innerHTML = `
+      <div class="telemetry-cell"><div class="lbl">MISSION TIME</div><div class="val" style="color:var(--c2-cyan)">${M.fmt(t)}</div></div>
+      <div class="telemetry-cell"><div class="lbl">TARGET SPEED</div><div class="val">${M.tg.spd[i].toFixed(1)} <span style="font-size:10px;color:var(--text-muted)">KTS</span></div></div>
+      <div class="telemetry-cell"><div class="lbl">AIS TRANSPONDER</div><div class="val" style="color:var(--c2-green)">LIVE STREAM</div></div>
+      <div class="telemetry-cell"><div class="lbl">HEADING</div><div class="val">${Math.round(M.tg.hdg[i])}°</div></div>
+      <div class="telemetry-cell"><div class="lbl">THREAT INDEX</div><div class="threat-meter"><div class="threat-bar"><div class="threat-fill" style="width:12%;background:var(--c2-green);"></div></div><span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--c2-green);">12/100</span></div></div>
+      <div class="telemetry-cell"><div class="lbl">ANOMALY TAGS</div><div class="val" style="font-size:10.5px;color:var(--c2-cyan)">NORMAL_TRANSIT</div></div>
+      <div class="telemetry-cell"><div class="lbl">ACTIVE DISPATCH</div><div class="val" style="font-size:12px;color:var(--text-muted)">NONE</div></div>`;
+  }
+
+  function drawAlerts(i){
+    $('alerts').innerHTML = M.alerts.map(a => `<div class="c2-alert sev-${a.sev}" data-i="${a.i}"><div class="alert-meta"><span>${M.fmt(a.t)}</span><span style="color:${SEV_COLOR[a.sev]};font-weight:700;">${a.sev.toUpperCase()}</span></div><div class="alert-title">${a.title}</div><div class="alert-desc">${a.detail}</div></div>`).join('');
+  }
+
+  function drawPlan(i){
+    const t = M.times[i];
+    $('assetTable').innerHTML = `<thead><tr><th>UNIT</th><th>PROFILE</th><th class="num">SPEED</th><th class="num">RANGE</th><th class="num">ETA</th><th class="num">FUEL REMAINING</th></tr></thead><tbody>
+      ${M.ASSETS.map(a => {
+        const h = M.intercept(a.pos, a, t);
+        const isSel = a.id === selected;
+        const dist = M.nm(a.pos, M.target(t));
+        return `<tr class="clickable ${isSel ? 'selected' : ''}" data-id="${a.id}">
+          <td style="font-weight:700;">${a.name}</td>
+          <td style="color:var(--c2-cyan);font-weight:bold;">${h ? h.profile : 'OUT'}</td>
+          <td class="num">${h ? a.maxKn : '--'} kt</td>
+          <td class="num">${Math.round(dist)} nm</td>
+          <td class="num" style="font-weight:700;color:var(--c2-cyan)">${h ? M.fmt(t + h.tau) : '--:--'}</td>
+          <td class="num" style="color:var(--c2-green);font-weight:bold;">${h ? h.rem.toFixed(0) + '%' : '--'}</td>
+        </tr>`;
+      }).join('')}</tbody>`;
+    document.querySelectorAll('#assetTable tr.clickable').forEach(r => r.addEventListener('click', () => { selected = r.dataset.id; draw(idx); }));
+  }
+
+  function logConsole(msg, type='info'){
+    const c = $('c2Console'), line = document.createElement('div');
+    line.className = 'console-line';
+    line.innerHTML = `<span class="ts">[${M.fmt(M.times[idx])}]</span> <span class="${type}">${msg}</span>`;
+    c.appendChild(line); c.scrollTop = c.scrollHeight;
+  }
+
+  $('dossierToggle').addEventListener('click', () =>$('dossierDrawer').classList.add('open'));
+  $('dossierClose').addEventListener('click', () =>$('dossierDrawer').classList.remove('open'));
+
+  window.executeCOA = function(coaNum){
+    alert("COA simulation authorized for Ever Given telemetry stream.");
+  };
+
+  map.on('mousemove', e => { $('hudCoords').textContent = `${e.latlng.lat.toFixed(4)}°N, ${e.latlng.lng.toFixed(4)}°E`; $('hudRange').textContent = `${M.nm([e.latlng.lat, e.latlng.lng], M.tg.pos[idx]).toFixed(1)} NM`; });
+
+  function draw(i){ $('clock').textContent = M.fmt(M.times[i]);$('t').value = i; drawStrip(i); drawMap(i); drawInset(i); drawAlerts(i); drawPlan(i); }
+  function set(i){ idx = Math.max(0, Math.min(M.N, i)); draw(idx); }
+  function stop(){ if (timer){ clearInterval(timer); timer = null; } $('play').textContent = 'EXECUTE'; }
+  function play(){ if (timer){ stop(); return; } if (idx >= M.N) idx = 0; $('play').textContent = 'HALT'; timer = setInterval(() => { if (idx >= M.N){ stop(); return; } set(idx + 1); }, 500 / +$('speed').value); }
+
+  $('play').addEventListener('click', play);
+  $('resetBtn').addEventListener('click', () => { stop(); set(24); logConsole('COMMAND CLOCK RESET', 'warn'); });$('speed').addEventListener('change', () => { if (timer){ stop(); play(); } });
+  $('t').addEventListener('input', e => { stop(); set(+e.target.value); });$('ticks').innerHTML = M.alerts.map(a => `<div class="tick" data-i="${a.i}" style="left:${(a.i / M.N * 100)}%;--c:${SEV_COLOR[a.sev]}" title="${a.title}"></div>`).join('');
+
+  logConsole('SYSTEM INITIALIZED. WGS-84 GRID SYNC OK.', 'info');
+  draw(idx);
+
+  // --- LIVE WEBSOCKET / PYTHON BRIDGE ---
+  setInterval(async () => {
+    try {
+      const response = await fetch('/api/radar');
+      const data = await response.json();
+      
+      const newPos = [data.live_lat, data.live_lon];
+      
+      // Update Keyframe data dynamically so map centers & tracks real coordinates
+      M.tg.pos[idx] = newPos;
+      if (targetMarker) {
+        targetMarker.setLatLng(newPos);
+        // Automatically pan map to follow the ship smoothly
+        map.panTo(newPos, {animate: true, duration: 0.5});
+      }
+      
+      logConsole(`LIVE SAT-PING (EVER GIVEN): ${data.live_lat.toFixed(4)}°N, ${data.live_lon.toFixed(4)}°E`, 'warn');
+    } catch (e) {
+      // Quietly wait for backend
+    }
+  }, 3000);
+  // -------------------------------------
+})();
+</script>
+</body>
+</html>
